@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package com.demo.common.grpc.device;
+
+option java_multiple_files = true;
+option java_package = "com.demo.common.grpc.device";
+option java_outer_classname = "DeviceProto";
+
+service DeviceService {
+  rpc GetDeviceUser(GetDeviceUserRequest) returns (GetDeviceUserResponse);
+  rpc GetDeviceUsers(GetDeviceUsersRequest) returns (GetDeviceUsersResponse);
+  rpc GetUserDevices(GetUserDevicesRequest) returns (GetUserDevicesResponse);
+}
+
+message GetDeviceUserRequest {
+  string device_id = 1;
+}
+
+message GetDeviceUserResponse {
+  string user_id = 1;
+}
+
+message GetDeviceUsersRequest {
+  repeated string device_id = 1;
+}
+
+message GetDeviceUsersResponse {
+  map<string, string> device_to_user = 1;
+}
+
+message GetUserDevicesRequest {
+  string user_id = 1;
+}
+
+message DeviceInfo {
+  string device_id = 1;
+  string device_type = 2;
+}
+
+message GetUserDevicesResponse {
+  repeated DeviceInfo devices = 1;
+}

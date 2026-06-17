@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package com.demo.common.grpc.energy_threshold;
+
+option java_multiple_files = true;
+option java_package = "com.demo.common.grpc.energyThreshold";
+option java_outer_classname = "EnergyThresholdProto";
+
+service EnergyThresholdService {
+  rpc GetUserEnergyThreshold(GetUserThresholdRequest) returns (GetUserThresholdResponse);
+  rpc GetUserEnergyThresholds(GetUserThresholdsRequest) returns (GetUserThresholdsResponse);
+}
+
+message GetUserThresholdRequest {
+  string user_id = 1;
+}
+
+message GetUserThresholdResponse {
+  optional double alert_threshold = 1;
+  string email = 2;
+}
+
+message GetUserThresholdsRequest {
+  repeated string user_id = 1;
+}
+
+message GetUserThresholdsResponse {
+  map<string, UserThresholdInfo> thresholds = 1;
+}
+
+message UserThresholdInfo {
+  optional double alert_threshold = 1;
+  string email = 2;
+}

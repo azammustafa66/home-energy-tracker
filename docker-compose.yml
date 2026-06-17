@@ -1,25 +1,45 @@
 services:
-  mysql:
-    image: mysql:8.3.0
-    container_name: mysql
+  postgresql:
+    image: postgres:14
+    container_name: postgresql
     restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: password
-      MYSQL_DATABASE: home_energy_tracker
+    env_file: .env
     ports:
-      - "3306:3306"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - db-data:/var/lib/mysql
-      - db-data:/var/log/mysql
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - energy-net
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: pgadmin
+    restart: always
+    env_file: .env
+    environment:
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    networks:
+      - energy-net
 
   kafka:
-    container_name: kafka
     image: apache/kafka:latest
+    container_name: kafka
     ports:
-      - "9092:9092"  # Internal listener (Docker network)
-      - "9094:9094"  # External listener (host machine)
-
+      - "9094:9094" #External Listener(Host)
     environment:
       ############################################
       # KRaft Metadata & Node Identity
@@ -43,23 +63,15 @@ services:
       # Network Listeners (Internal, External & Controller)
       ############################################
       # Define all listener endpoints for this Kafka node
-      KAFKA_LISTENERS: >
-        PLAINTEXT://0.0.0.0:9092,
-        EXTERNAL://0.0.0.0:9094,
-        CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093'
 
       # What each listener advertises to connecting clients
       # Internal (Docker containers): kafka:9092
       # External (host machine): localhost:9094
-      KAFKA_ADVERTISED_LISTENERS: >
-        PLAINTEXT://kafka:9092,
-        EXTERNAL://localhost:9094
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094'
 
       # Maps listener names to their security protocols
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: >
-        CONTROLLER:PLAINTEXT,
-        PLAINTEXT:PLAINTEXT,
-        EXTERNAL:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT'
 
       # Which listener brokers should use for internal communication
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
@@ -84,9 +96,12 @@ services:
 
     volumes:
       - ./docker/kafka_data:/var/lib/kafka/data
+    restart: unless-stopped
+    networks:
+      - energy-net
 
   kafka-ui:
-    container_name: kafka-ui
+    container_name: kafka_ui
     image: ghcr.io/kafbat/kafka-ui:latest
     ports:
       - "8070:8080"
@@ -94,68 +109,100 @@ services:
       - kafka
     environment:
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092  # Use internal Docker network name
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       DYNAMIC_CONFIG_ENABLED: 'true'
     restart: unless-stopped
+    networks:
+      - energy-net
 
-  influxdb:
+  influx-db:
+    container_name: influx_db
     image: influxdb:2.7
-    container_name: influxdb
     ports:
       - "8072:8086"
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
-      - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=admin123
-      - DOCKER_INFLUXDB_INIT_ORG=leetjourney
-      - DOCKER_INFLUXDB_INIT_BUCKET=usage-bucket
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_INIT_USERNAME}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_INIT_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_INIT_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_INIT_BUCKET}
       - DOCKER_INFLUXDB_INIT_RETENTION=1w
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-token
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_INIT_ADMIN_TOKEN}
+    restart: unless-stopped
     volumes:
-      - ./influxdb_data:/var/lib/influxdb2
+      - ./docker/influxdb_data:/var/lib/influxdb2
+    networks:
+      - energy-net
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.30
     container_name: mailpit
     ports:
       - "8025:8025"
       - "1025:1025"
+    restart: unless-stopped
+    networks:
+      - energy-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - energy-net
 
   keycloak-db:
-    container_name: keycloak-mysql
-    image: mysql:8.3.0
-    volumes:
-      - ./volume-data/mysql_keycloak_data:/var/lib/mysql
+    image: postgres:16
+    container_name: keycloak_db
+    restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: keycloak
-      MYSQL_USER: keycloak
-      MYSQL_PASSWORD: password
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloak_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - energy-net
 
   keycloak:
+    image: quay.io/keycloak/keycloak:26.0
     container_name: keycloak
-    image: quay.io/keycloak/keycloak:24.0.1
-    command: [ "start-dev", "--import-realm" ]
+    command:
+      - start-dev
+    env_file:
+      - .env
     environment:
-      DB_VENDOR: MYSQL
-      DB_ADDR: mysql
-      DB_DATABASE: keycloak
-      DB_USER: keycloak
-      DB_PASSWORD: password
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
+      KC_HOSTNAME: localhost
+      KC_HTTP_ENABLED: "true"
     ports:
-      - "8091:8080"
-    volumes:
-      - ./docker/keycloak/realms/:/opt/keycloak/data/import/
+      - "8080:8080"
     depends_on:
-      - keycloak-db
+      keycloak-db:
+        condition: service_healthy
+    networks:
+      - energy-net
 
   prometheus:
     image: prom/prometheus:v3.1.0
     container_name: prometheus
     ports:
-      - "9090:9090"
+      - "9091:9090"
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
@@ -165,6 +212,8 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     restart: unless-stopped
+    networks:
+      - energy-net
 
   grafana:
     image: grafana/grafana:11.4.0
@@ -182,8 +231,16 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+    networks:
+      - energy-net
 
 volumes:
-  db-data:
-  kafka-data:
+  pgdata:
+  pgadmin_data:
+  ollama_data:
+  keycloak_pgdata:
   grafana-data:
+
+networks:
+  energy-net:
+    driver: bridge
