@@ -22,6 +22,8 @@
         <spring-grpc.version>0.11.0</spring-grpc.version>
         <protobuf.version>4.28.3</protobuf.version>
         <grpc.version>1.69.0</grpc.version>
+        <!-- 1.76.0+ ships a universal macOS binary; the 1.69.0 "osx-aarch_64" one is x86_64 and needs Rosetta -->
+        <protoc-gen-grpc-java.version>1.76.0</protoc-gen-grpc-java.version>
     </properties>
 
     <dependencyManagement>
@@ -97,7 +99,7 @@
                 <configuration>
                     <protocArtifact>com.google.protobuf:protoc:${protobuf.version}:exe:${os.detected.classifier}</protocArtifact>
                     <pluginId>grpc-java</pluginId>
-                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${grpc.version}:exe:${os.detected.classifier}</pluginArtifact>
+                    <pluginArtifact>io.grpc:protoc-gen-grpc-java:${protoc-gen-grpc-java.version}:exe:${os.detected.classifier}</pluginArtifact>
                 </configuration>
                 <executions>
                     <execution>
